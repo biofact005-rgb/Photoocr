@@ -23,6 +23,9 @@ if not API_TOKEN:
 
 bot = telebot.TeleBot(API_TOKEN) if API_TOKEN else None
 
+# ✅ THIS WAS MISSING - FIXING THE ERROR
+user_data = {} 
+
 # ==========================================
 # 🌐 FAKE WEB SERVER (RENDER KEEP-ALIVE)
 # ==========================================
@@ -40,7 +43,7 @@ def keep_alive():
     t = threading.Thread(target=run_server)
     t.start()
 
-print("✅ Professional Forensics Bot V6 (Final) Online...")
+print("✅ Professional Forensics Bot V6 (Bug Fixed) Online...")
 
 # --- 1. HELPER FUNCTIONS ---
 
@@ -188,7 +191,9 @@ def process_photo_for_hiding(message):
     img = Image.open(temp_filename)
     img.save(temp_filename)
 
+    # ✅ NOW THIS WILL WORK
     user_data[message.chat.id] = {'file_path': temp_filename}
+    
     msg = bot.reply_to(message, "📝 **Input Required:**\nEnter text to hide.")
     bot.register_next_step_handler(msg, process_text_hiding)
 
@@ -196,7 +201,13 @@ def process_text_hiding(message):
     try:
         chat_id = message.chat.id
         secret_text = message.text
-        file_path = user_data[chat_id]['file_path']
+        
+        # Accessing user_data safely
+        if chat_id in user_data:
+            file_path = user_data[chat_id]['file_path']
+        else:
+            bot.reply_to(message, "❌ Session expired. Please upload photo again.")
+            return
         
         status = bot.reply_to(message, "⚙️ **Processing:** Encryption in progress...")
         
@@ -207,9 +218,15 @@ def process_text_hiding(message):
         with open(output_filename, "rb") as f:
             bot.send_document(chat_id, f, caption="✅ **Encryption Complete.**")
             
-        os.remove(file_path); os.remove(output_filename)
+        # Cleanup
+        if os.path.exists(file_path): os.remove(file_path)
+        if os.path.exists(output_filename): os.remove(output_filename)
+        del user_data[chat_id] # Clear memory
+        
         bot.delete_message(chat_id, status.message_id)
-    except: bot.reply_to(message, "❌ Error: Image too small.")
+    except Exception as e:
+        print(f"Error: {e}")
+        bot.reply_to(message, "❌ Error: Image too small or server busy.")
 
 # --- 6. FEATURE: IMAGE SCAN (FIXED MAP) ---
 
