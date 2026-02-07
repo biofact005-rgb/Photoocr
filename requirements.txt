@@ -1,0 +1,5 @@
+pyTelegramBotAPI
+Pillow
+stegano
+pytesseract
+PyPDF2
