@@ -162,4 +162,115 @@ def process_photo_for_hiding(message):
     if message.document: file_id = message.document.file_id
     else: file_id = message.photo[-1].file_id
 
-    file_info = bot.get_file
+    file_info = bot.get_file(file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+    
+    temp_filename = f"temp_{message.chat.id}.png"
+    with open(temp_filename, 'wb') as new_file: new_file.write(downloaded_file)
+    
+    img = Image.open(temp_filename)
+    img.save(temp_filename)
+
+    user_data[message.chat.id] = {'file_path': temp_filename}
+    msg = bot.reply_to(message, "📝 **Input Required:**\nEnter text to hide.")
+    bot.register_next_step_handler(msg, process_text_hiding)
+
+def process_text_hiding(message):
+    try:
+        chat_id = message.chat.id
+        secret_text = message.text
+        file_path = user_data[chat_id]['file_path']
+        
+        status = bot.reply_to(message, "⚙️ **Processing:** Encryption in progress...")
+        
+        secret_img = lsb.hide(file_path, secret_text)
+        output_filename = f"secure_data_{chat_id}.png"
+        secret_img.save(output_filename)
+        
+        with open(output_filename, "rb") as f:
+            bot.send_document(chat_id, f, caption="✅ **Encryption Complete.**")
+            
+        os.remove(file_path); os.remove(output_filename)
+        bot.delete_message(chat_id, status.message_id)
+    except: bot.reply_to(message, "❌ Error: Image too small.")
+
+# --- 6. FEATURE: IMAGE SCAN ---
+
+def process_scan(message):
+    try:
+        status_msg = bot.reply_to(message, "⚙️ **Processing:** Deep scanning...")
+        if message.document: file_id = message.document.file_id
+        elif message.photo: file_id = message.photo[-1].file_id
+        else: return
+
+        file_info = bot.get_file(file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        img_stream = io.BytesIO(downloaded_file)
+        image = Image.open(img_stream)
+        
+        report = "🕵️‍♂️ **FORENSIC ANALYSIS REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        exif_data = image._getexif()
+        if exif_data:
+            make = exif_data.get(271, "N/A"); model = exif_data.get(272, "Unknown")
+            date = exif_data.get(306, "Unknown")
+            report += f"📱 **[ DEVICE METADATA ]**\nModel: {make} {model}\nTime: {date}\n\n"
+        else: report += "📱 **[ DEVICE METADATA ]**\nStatus: No EXIF data.\n\n"
+
+        try:
+            temp_scan = f"scan_{message.chat.id}.png"
+            with open(temp_scan, 'wb') as f: f.write(downloaded_file)
+            hidden_msg = lsb.reveal(temp_scan)
+            os.remove(temp_scan)
+            if hidden_msg: report += f"🔓 **[ HIDDEN DATA ]**\n<code>{hidden_msg}</code>\n\n"
+            else: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
+        except: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
+
+        if exif_data:
+            coords = get_gps_coords(exif_data)
+            if coords:
+                lat, lon = coords
+                report += f"📍 **[ GEOLOCATION ]**\n<a href='http://maps.google.com/0{lat},{lon}'>Open Satellite View</a>\n\n"
+            else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags.\n\n"
+        else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags.\n\n"
+
+        try:
+            extracted_text = pytesseract.image_to_string(image)
+            if len(extracted_text.strip()) > 5:
+                report += f"📝 **[ OCR TEXT ]**\n<code>{extracted_text[:300]}</code>\n"
+            else: report += "📝 **[ OCR TEXT ]**\nNo text detected.\n"
+        except: pass
+
+        report += "━━━━━━━━━━━━━━━━━━━━━━━━"
+        bot.edit_message_text(report, message.chat.id, status_msg.message_id, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e: bot.reply_to(message, f"❌ Error: {e}")
+
+# --- 7. FEATURE: PDF FORENSICS ---
+
+def process_pdf_analysis(message):
+    try:
+        if not message.document or 'pdf' not in message.document.mime_type:
+            bot.reply_to(message, "⚠️ **Invalid:** Please upload a PDF.")
+            return
+
+        status_msg = bot.reply_to(message, "⚙️ **Processing:** Parsing PDF...")
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        pdf_file = io.BytesIO(downloaded_file)
+        reader = PyPDF2.PdfReader(pdf_file)
+        meta = reader.metadata
+
+        report = "📄 **DOCUMENT FORENSICS REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        if meta:
+            report += f"👤 **Author:** {meta.get('/Author', 'Unknown')}\n"
+            report += f"🛠️ **Creator:** {meta.get('/Creator', 'Unknown')}\n"
+            report += f"📅 **Created:** {format_pdf_date(meta.get('/CreationDate', 'Unknown'))}\n"
+            report += f"✏️ **Modified:** {format_pdf_date(meta.get('/ModDate', 'Unknown'))}\n"
+            report += f"📑 **Pages:** {len(reader.pages)}\n"
+        else: report += "⚠️ No metadata found."
+        
+        report += "━━━━━━━━━━━━━━━━━━━━━━━━"
+        bot.edit_message_text(report, message.chat.id, status_msg.message_id, parse_mode="HTML")
+    except Exception as e: bot.reply_to(message, f"❌ PDF Error: {e}")
+
+bot.infinity_polling()
