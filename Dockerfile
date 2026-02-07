@@ -1,10 +1,12 @@
 # Python Image
 FROM python:3.10-slim
 
-# Install Tesseract OCR (Zaroori hai OCR ke liye)
+# Install Tesseract OCR AND System Dependencies (Fix for libGL error)
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     libtesseract-dev \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Work Directory set karo
