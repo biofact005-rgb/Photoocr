@@ -4,3 +4,4 @@ stegano
 pytesseract
 PyPDF2
 Flask
+Faker
