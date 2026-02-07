@@ -1,11 +1,13 @@
 import telebot
-from PIL import Image
+from PIL import Image, ExifTags
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import io
 import os
 import re
 import random
 import string
+import threading
+from flask import Flask  # <--- Render ke liye zaroori hai
 from stegano import lsb
 import pytesseract
 import PyPDF2
@@ -13,15 +15,34 @@ import PyPDF2
 # ==========================================
 # 👇 CONFIGURATION 👇
 # ==========================================
-# Render par Environment Variable set karna padega 'BOT_TOKEN' naam se
+# Render par Environment Variable 'BOT_TOKEN' set karein
 API_TOKEN = os.environ.get('BOT_TOKEN')
-if not API_TOKEN:
-    print("❌ Error: BOT_TOKEN not found in environment variables!")
-    exit()
-# ==========================================
 
-bot = telebot.TeleBot(API_TOKEN)
-user_data = {}
+# Local Testing ke liye (Agar render par nahi ho toh ise uncomment karo)
+# API_TOKEN = "YOUR_TOKEN_HERE" 
+
+if not API_TOKEN:
+    print("❌ Error: BOT_TOKEN not found! (Check Render Environment Variables)")
+
+bot = telebot.TeleBot(API_TOKEN) if API_TOKEN else None
+
+# ==========================================
+# 🌐 FAKE WEB SERVER (RENDER KEEP-ALIVE)
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Spy Bot V6 is Running Live!"
+
+def run_server():
+    # Render automatically PORT env variable deta hai
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+def keep_alive():
+    t = threading.Thread(target=run_server)
+    t.start()
 
 print("✅ Professional Forensics Bot V6 (Render Version) Online...")
 
@@ -50,9 +71,10 @@ def format_pdf_date(date_str):
     if not date_str: return "Unknown"
     return date_str.replace("D:", "").replace("'", "")
 
-# --- COMPLEXITY CALCULATION ---
+# --- COMPLEXITY CALCULATION (MATHS) ---
 def calculate_complexity(password):
     pool_size = 0
+    # Logic: Har type ke character se pool badhta hai
     if re.search(r"[a-z]", password): pool_size += 26
     if re.search(r"[A-Z]", password): pool_size += 26
     if re.search(r"\d", password): pool_size += 10
@@ -60,6 +82,7 @@ def calculate_complexity(password):
     
     if pool_size == 0: return 0, []
 
+    # Formula: Combinations = Pool_Size ^ Length
     length = len(password)
     combinations = pool_size ** length
     
@@ -127,12 +150,13 @@ def callback_query(call):
         password = generate_strong_password()
         bot.send_message(call.message.chat.id, f"⚡ **Generated Secure Password:**\n\n<code>{password}</code>\n\n(Click to copy)", parse_mode="HTML")
 
-# --- 4. FEATURE: PASSWORD SHIELD ---
+# --- 4. FEATURE: PASSWORD SHIELD (MATHS LOGIC) ---
 
 def process_pass_audit(message):
     password = message.text.strip()
     combinations, feedback = calculate_complexity(password)
     
+    # Scientific Notation (e.g., 3.45e+12)
     formatted_combos = "{:.2e}".format(combinations)
     
     if combinations < 10**6: rating = "🔴 Critical (Instant Crack)"
@@ -142,7 +166,7 @@ def process_pass_audit(message):
     
     report = f"🛡️ **PASSWORD COMPLEXITY REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
     report += f"🔑 **Input:** ||{password}||\n\n"
-    report += f"📉 **Brute-Force Combinations:**\n👉 **{formatted_combos}** possibilities.\n_(Approx {combinations:,} attempts)_\n\n"
+    report += f"📉 **Brute-Force Combinations:**\nTo crack this, an attacker needs:\n👉 **{formatted_combos}** tries.\n_(Approx {combinations:,} attempts)_\n\n"
     report += f"📊 **Security Rating:**\n{rating}\n\n"
     
     if feedback:
@@ -192,9 +216,9 @@ def process_text_hiding(message):
             
         os.remove(file_path); os.remove(output_filename)
         bot.delete_message(chat_id, status.message_id)
-    except: bot.reply_to(message, "❌ Error: Image too small.")
+    except: bot.reply_to(message, "❌ Error: Image too small or format issue.")
 
-# --- 6. FEATURE: IMAGE SCAN ---
+# --- 6. FEATURE: IMAGE SCAN (OCR & GPS) ---
 
 def process_scan(message):
     try:
@@ -210,6 +234,7 @@ def process_scan(message):
         
         report = "🕵️‍♂️ **FORENSIC ANALYSIS REPORT**\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
+        # Device Metadata
         exif_data = image._getexif()
         if exif_data:
             make = exif_data.get(271, "N/A"); model = exif_data.get(272, "Unknown")
@@ -217,6 +242,7 @@ def process_scan(message):
             report += f"📱 **[ DEVICE METADATA ]**\nModel: {make} {model}\nTime: {date}\n\n"
         else: report += "📱 **[ DEVICE METADATA ]**\nStatus: No EXIF data.\n\n"
 
+        # Hidden Message Check
         try:
             temp_scan = f"scan_{message.chat.id}.png"
             with open(temp_scan, 'wb') as f: f.write(downloaded_file)
@@ -226,6 +252,7 @@ def process_scan(message):
             else: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
         except: report += "🔒 **[ HIDDEN DATA ]**\nNegative.\n\n"
 
+        # GPS Check
         if exif_data:
             coords = get_gps_coords(exif_data)
             if coords:
@@ -234,11 +261,12 @@ def process_scan(message):
             else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags.\n\n"
         else: report += "📍 **[ GEOLOCATION ]**\nNo GPS tags.\n\n"
 
+        # OCR Check
         try:
             extracted_text = pytesseract.image_to_string(image)
             if len(extracted_text.strip()) > 5:
                 report += f"📝 **[ OCR TEXT ]**\n<code>{extracted_text[:300]}</code>\n"
-            else: report += "📝 **[ OCR TEXT ]**\nNo text detected.\n"
+            else: report += "📝 **[ OCR TEXT ]**\nNo readable text detected.\n"
         except: pass
 
         report += "━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -273,4 +301,8 @@ def process_pdf_analysis(message):
         bot.edit_message_text(report, message.chat.id, status_msg.message_id, parse_mode="HTML")
     except Exception as e: bot.reply_to(message, f"❌ PDF Error: {e}")
 
-bot.infinity_polling()
+# --- START SERVER AND BOT ---
+if __name__ == "__main__":
+    keep_alive()  # <--- Ye fake server chalu karega
+    if bot:
+        bot.infinity_polling()
