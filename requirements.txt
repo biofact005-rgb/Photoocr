@@ -3,3 +3,4 @@ Pillow
 stegano
 pytesseract
 PyPDF2
+Flask
